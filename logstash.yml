@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: elasticsearch
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/instance: logstash
+    app.kubernetes.io/version: "7.10.1"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logstash
+      app.kubernetes.io/instance: logstash
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logstash
+        app.kubernetes.io/instance: logstash
+    spec:
+      serviceAccountName: logstash
+      hostname: logstash
+      restartPolicy: Always
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:7.10.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ES_HOSTS
+              value: "https://master:9200"
+            - name: ES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: username
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: password
+          ports:
+            - name: service
+              containerPort: 5044
+            - name: collectd
+              containerPort: 25826
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/logstash/config/logstash.yml
+              subPath: logstash.yml
+            - name: root-ca-pem
+              mountPath: /etc/logstash/certificates/root-ca.pem
+              subPath: root-ca.pem
+            - name: pipeline-config
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              subPath: logstash.conf
+          resources:
+            limits:
+              cpu: "800m"
+              memory: "4Gi"
+            requests:
+              cpu: "400m"
+              memory: "2Gi"
+      volumes:
+        - name: config
+          configMap:
+            name: logstash-configuration
+            items:
+              - key: logstash.yml
+                path: logstash.yml
+        - name: pipeline-config
+          configMap:
+            name: logstash-pipeline-configuration
+            items:
+              - key: logstash.conf
+                path: logstash.conf
+        - name: root-ca-pem
+          projected:
+            sources:
+              - secret:
+                  name: elasticsearch-certificates
+                  items:
+                    - key: root-ca.pem
+                      path: root-ca.pem
+      terminationGracePeriodSeconds: 60
